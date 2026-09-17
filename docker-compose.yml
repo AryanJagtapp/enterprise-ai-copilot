@@ -1,0 +1,15 @@
+# Phase 1: backend-only skeleton so `docker compose up` is meaningful early.
+# Frontend service is added in Phase 3 once the Vite app exists.
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend/data:/app/data
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
