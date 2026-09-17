@@ -21,7 +21,7 @@ Security Center in the frontend has real data to show, not a mock.
 """
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from sqlalchemy.orm import Session
 

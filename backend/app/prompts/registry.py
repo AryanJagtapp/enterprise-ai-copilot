@@ -11,7 +11,6 @@ method because Feature 2 (regression detection) calls it by that name
 when a regression is confirmed.
 """
 import datetime as dt
-import uuid
 from dataclasses import dataclass
 from typing import List, Optional
 

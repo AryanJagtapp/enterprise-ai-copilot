@@ -12,10 +12,10 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import chat, health, observability, prompts, security
+from app.api.routes import chat, documents, evaluation, health, observability, prompts, search, security
 from app.core.config import get_settings
 from app.core.errors import AppError
-from app.core.logging import configure_logging, get_request_id, log_event, set_request_id
+from app.core.logging import configure_logging, log_event, set_request_id
 from app.models.db import get_session_factory
 from app.prompts.registry import seed_default_prompts
 
@@ -66,6 +66,9 @@ async def request_context_middleware(request: Request, call_next):
 
 app.include_router(health.router, prefix=settings.api_prefix)
 app.include_router(chat.router, prefix=settings.api_prefix)
+app.include_router(documents.router, prefix=settings.api_prefix)
+app.include_router(search.router, prefix=settings.api_prefix)
 app.include_router(prompts.router, prefix=settings.api_prefix)
 app.include_router(security.router, prefix=settings.api_prefix)
 app.include_router(observability.router, prefix=settings.api_prefix)
+app.include_router(evaluation.router, prefix=settings.api_prefix)

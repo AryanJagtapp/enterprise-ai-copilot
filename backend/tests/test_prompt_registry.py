@@ -1,5 +1,6 @@
-from app.prompts.registry import PromptNotFound, PromptRegistry, seed_default_prompts
 import pytest
+
+from app.prompts.registry import PromptNotFound, PromptRegistry, seed_default_prompts
 
 
 def _fresh_session():

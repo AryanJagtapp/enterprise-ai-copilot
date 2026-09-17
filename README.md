@@ -9,13 +9,17 @@ questions — with the system also monitoring its own quality, security, and
 reliability. Built as one integrated application, not a set of independent
 mini-projects; T33–T48 are its acceptance criteria (see `docs/TASK_STATUS.md`).
 
-> **Status:** Phase 1 of 3. The security gateway, prompt registry, tool
-> gateway, orchestrator router, and API skeleton are implemented, tested (22
-> passing pytest tests), and verified against a live running server.
-> Document ingestion, hybrid RAG, evaluation, the React frontend, CI/CD
-> execution, and load testing are Phase 2/3 — see
-> `MONTH_2_TO_MONTH_3_MIGRATION_PLAN.md` and `docs/TASK_STATUS.md` for exactly
-> what is and isn't built yet.
+> **Status:** Phase 2 of 3. Document ingestion, hybrid retrieval (BM25 +
+> dense embeddings), cross-encoder reranking, multi-hop retrieval, Gemini
+> answer synthesis (with a real, tested extractive fallback since this
+> environment has no real Gemini key), metadata filtering, a separate
+> authorization layer, an executable evaluation + regression-detection
+> suite, and a working React frontend are all implemented, tested (61
+> passing pytest tests), and verified against a live running server —
+> including real Playwright screenshots of the UI driving the real API.
+> Load testing under real concurrency, CI execution on GitHub, and the
+> remaining T44–T48 documents are Phase 3 — see `docs/TASK_STATUS.md` for
+> exactly what is and isn't done.
 
 ## Why this exists
 
@@ -28,14 +32,14 @@ deliberate differentiators layered on top:
    same pipeline for everything.
 2. **Continuous AI Evaluation + Regression Detection** — the system measures
    its own answer quality, groundedness, and reliability, and can detect and
-   roll back a prompt-version regression.
+   roll back a prompt-version regression automatically.
 3. **Enterprise AI Security Gateway** — every request passes through a single
    explicit security/policy layer (PII detection, prompt-injection detection,
-   input/output validation, tool authorization) before it ever reaches an LLM
-   or a tool.
-4. **Failure Recovery & Fallback Architecture** — component failures (Gemini
-   rate limits, a down reranker, a down vector store) degrade gracefully and
-   say so, instead of failing hard or silently.
+   input/output validation, tool authorization), and document access is
+   enforced by a **separate authorization layer**, not by search filters.
+4. **Failure Recovery & Fallback Architecture** — component failures (no
+   Gemini key, a down reranker, a down embedding model) degrade gracefully
+   and say so, instead of failing hard or silently.
 
 ## Architecture
 
@@ -50,12 +54,14 @@ Adaptive Orchestrator  (router: RAG | TOOL | MULTI_HOP | CLARIFY | REFUSE)
       |            |            |
    RAG Path    Tool Path    Multi-hop
       |            |            |
-Hybrid Search  Tool Gateway  Retrieval (iterated)
+Hybrid Search  Tool Gateway  Retrieval (iterated, ≤4 hops)
       |            |            |
   Reranker    DB/Calculator   Reranker
       |____________|____________|
                    |
-               Gemini LLM
+          Authorization filter  (clearance vs. confidentiality_level)
+                   |
+               Gemini LLM  (or extractive fallback if unavailable)
                    |
            Output Validation
                    |
@@ -71,15 +77,18 @@ Hybrid Search  Tool Gateway  Retrieval (iterated)
 ```
 
 Full design rationale: `docs/T33_Technical_Design_Document_v1.md`.
+Security posture: `docs/T42_Security_Hardening_Report.md`.
 
 ## Technology stack
 
 **Backend:** Python 3.11, FastAPI, Pydantic v2, SQLAlchemy 2.0 + SQLite,
 Google Gemini (no OpenAI), `sentence-transformers/all-MiniLM-L6-v2` (dense
 embeddings), `rank-bm25` (sparse retrieval), `cross-encoder/ms-marco-MiniLM-L-6-v2`
-(reranking), pytest.
+(reranking), pypdf + python-docx (parsing), pytest.
 
-**Frontend:** React + Vite (Phase 3). No Streamlit anywhere in this project.
+**Frontend:** React + Vite, no UI framework dependency beyond React itself
+(kept deliberately light so it installs and builds reliably). No Streamlit
+anywhere in this project.
 
 ## Project structure
 
@@ -87,23 +96,24 @@ embeddings), `rank-bm25` (sparse retrieval), `cross-encoder/ms-marco-MiniLM-L-6-
 enterprise-ai-copilot/
 ├── backend/
 │   ├── app/
-│   │   ├── api/routes/       # health, chat, prompts, security, observability
+│   │   ├── api/routes/       # health, chat, documents, search, prompts, security, observability, evaluation
 │   │   ├── core/              # config, structured logging, errors, resilience
-│   │   ├── models/            # SQLAlchemy models (documents, prompts, evaluations, security/observability events)
-│   │   ├── security/          # PII detection, prompt-injection detection, gateway
-│   │   ├── tools/             # tool gateway, schemas, calculator
-│   │   ├── agents/            # orchestrator / router
+│   │   ├── models/            # SQLAlchemy models (documents, chunks, prompts, evaluations, security/observability events)
+│   │   ├── security/          # PII detection, prompt-injection detection, gateway, authorization
+│   │   ├── tools/             # tool gateway, schemas, calculator, KB search, structured DB search
+│   │   ├── agents/            # orchestrator router, multi-hop planner
 │   │   ├── prompts/           # prompt registry (versioning)
-│   │   ├── rag/                # Phase 2
-│   │   ├── evaluation/         # Phase 3
-│   │   ├── observability/      # Phase 2+ (tracing helpers)
+│   │   ├── rag/                # chunking, embeddings, vector store, BM25, hybrid retrieval, reranker, answer synthesis
+│   │   ├── evaluation/         # benchmark datasets, executable runner, regression detection
+│   │   ├── services/           # ingestion pipeline, Gemini client wrapper
+│   │   ├── observability/      # (tracing helpers — Phase 3)
 │   │   └── main.py
-│   ├── tests/                  # 22 passing pytest tests
+│   ├── tests/                  # 61 passing pytest tests
 │   ├── requirements.txt
 │   └── Dockerfile
-├── frontend/                   # Phase 3
-├── evaluation/                 # Phase 3 benchmark datasets
-├── load_tests/                 # Phase 3 (Locust)
+├── frontend/                   # React + Vite — Dashboard, Chat, Documents, Evaluation, Observability, Security, Prompts
+├── evaluation/                 # (reserved for external benchmark data files)
+├── load_tests/                 # Locust script (not yet executed under real concurrency)
 ├── docs/                        # T33–T48 documentation set
 ├── scripts/
 ├── .github/workflows/ci.yml
@@ -114,6 +124,8 @@ enterprise-ai-copilot/
 ```
 
 ## Setup (Windows / PowerShell)
+
+### Backend
 
 ```powershell
 cd backend
@@ -126,6 +138,22 @@ copy ..\.env.example .env
 
 If `.\venv\Scripts\Activate.ps1` is blocked by execution policy, skip
 activation and call the venv's python/pip directly as shown above.
+
+The first request that uses embeddings or reranking will download the
+Hugging Face models (`sentence-transformers/all-MiniLM-L6-v2` and
+`cross-encoder/ms-marco-MiniLM-L-6-v2`, a few hundred MB total) — this
+needs outbound internet access once, then they're cached locally.
+
+### Frontend
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Open http://localhost:5173 — the Vite dev server proxies `/api` to
+`http://localhost:8000`, so start the backend first.
 
 ## Running the backend
 
@@ -143,7 +171,10 @@ cd backend
 .\venv\Scripts\python.exe -m pytest -v
 ```
 
-Expected: 22 passed (Phase 1 baseline — grows every phase).
+Expected: **61 passed**. This includes tests that genuinely exercise the
+Gemini-unavailable fallback path (no real API key is configured in this
+environment, so those tests prove the fallback works, not that Gemini
+answered) — see `tests/test_gemini_fallback.py`.
 
 ## Environment variables
 
@@ -151,51 +182,95 @@ See `.env.example` at the repo root. Never commit a real `.env` file — it is
 git-ignored. No API keys, secrets, or credentials appear anywhere in this
 repository.
 
-## API (Phase 1)
+## API (Phase 2)
 
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/v1/health` | Liveness check |
-| POST | `/api/v1/chat` | Security gateway → orchestrator → (tool \| placeholder) → response |
+| POST | `/api/v1/chat` | Full pipeline: security gateway → orchestrator → RAG/tool/multi-hop → authorization → synthesis → response |
+| POST | `/api/v1/search` | Raw hybrid retrieval + rerank, no LLM synthesis (debugging / evaluation) |
+| POST | `/api/v1/documents/upload` | Upload + ingest a PDF/DOCX/TXT with enterprise metadata |
+| GET | `/api/v1/documents` | List documents (filterable by status/business_unit) |
+| DELETE | `/api/v1/documents/{id}` | Remove a document and its chunks/vectors |
 | GET | `/api/v1/prompts` | List prompt versions |
 | POST | `/api/v1/prompts` | Create a new prompt version |
 | POST | `/api/v1/prompts/{id}/activate?version=N` | Activate a version |
 | POST | `/api/v1/prompts/{id}/rollback?version=N` | Roll back to a previous version |
 | GET | `/api/v1/security/events` | Security Center data (PII/injection/policy events) |
-| GET | `/api/v1/observability` | Request-level observability events |
+| GET | `/api/v1/observability` | Request-level observability events with latency breakdown |
+| POST | `/api/v1/evaluate` | Run the executable benchmark suite, write metrics |
+| POST | `/api/v1/evaluate/compare` | Compare two runs, flag regressions |
+| POST | `/api/v1/evaluate/prompt-change` | Benchmark a candidate prompt version vs. the active one, auto-rollback on regression |
+| GET | `/api/v1/metrics` | Evaluation metric history |
 
-Document upload/search, evaluation, and the full endpoint set from the spec
-land in Phase 2/3 (`docs/TASK_STATUS.md` tracks exactly what's done).
+`X-User-Clearance` header (`Public`/`Internal`/`Confidential`/`Restricted`,
+defaults to `Internal`) controls document authorization on `/chat` and
+`/search` — see the security posture section below for why this is a
+placeholder, not real authentication.
 
-## Security posture (Phase 1)
+## Security posture
 
-- Prompt-injection and PII scanning on every `/chat` request before it
-  reaches any downstream logic.
-- Retrieved/external content is always wrapped as `<untrusted_data>` before
-  reaching a prompt template (Phase 2), so a document can never pose as an
-  instruction.
+Full OWASP LLM Top 10-oriented review: `docs/T42_Security_Hardening_Report.md`.
+Summary:
+
+- Prompt-injection and PII scanning on every `/chat` request, plus on every
+  retrieved document chunk before it reaches a prompt template.
+- Retrieved/external content is always wrapped as `<untrusted_data>` so a
+  document can never pose as an instruction.
 - No arbitrary code execution anywhere: the calculator tool uses Python's
-  `ast` module with a strict node-type allowlist, not `eval()`.
+  `ast` module with a strict node-type allowlist; the structured-DB-search
+  tool only queries an explicit table allowlist, never raw SQL.
 - All tool calls go through a single Tool Gateway: allowlisted, schema
   validated, timeout-bounded, capped at `max_agent_steps` per request.
-- Every security decision is persisted as a `SecurityEvent`, visible via
-  `/api/v1/security/events` — nothing is a hidden or fabricated check.
-
-Full OWASP LLM Top 10 review: Phase 3 (`docs/T42_Security_Hardening_Report.md`,
-not yet written).
+- **Authorization is a separate concern from metadata filtering.** A
+  document's `confidentiality_level` is enforced by
+  `app/security/authorization.py` on every retrieval, regardless of what
+  business-unit/document-type filter (if any) the caller requested — a
+  broad or missing filter can never leak a Restricted document. Verified
+  live: a `search` request with `X-User-Clearance: Internal` cannot see a
+  Restricted document even when it is the best-matching result.
+- Known, documented gap: clearance is read from a request header with no
+  real identity provider behind it yet (see the security report).
 
 ## Observability
 
-Structured JSON logs (`backend/app/core/logging.py`) with request-id
-propagation; per-request metrics persisted to `observability_events`
-(router decision, tool selected, latency, fallback flags). Retrieval/rerank/
-LLM/tool-latency breakdown lands with the Phase 2 RAG pipeline.
+Structured JSON logs with request-id propagation; per-request metrics
+persisted to `observability_events`, including the full latency breakdown
+(retrieval / rerank / LLM / tool), router decision, retrieval strategy,
+prompt version used, and fallback flag + reason. Visible live in the
+frontend's Observability tab or via `GET /api/v1/observability`.
+
+## Evaluation & regression detection
+
+`POST /api/v1/evaluate` runs a real benchmark (3 QA cases against seeded
+sample documents, 3 safety cases including real injection strings, 2 tool
+cases) through the actual pipeline and writes genuine metric values —
+nothing here is a static table. `POST /api/v1/evaluate/prompt-change`
+benchmarks a candidate prompt version against the currently active one and
+automatically rolls back via the Prompt Registry if the decisive metric
+regresses beyond a threshold. See `docs/TASK_STATUS.md` for the actual
+metric values this repository produced in this session.
 
 ## Deployment
 
 Docker skeleton exists (`backend/Dockerfile`, `docker-compose.yml`) but has
 not been built or deployed in this session — no deployment success is
-claimed anywhere in this repository.
+claimed anywhere in this repository. A frontend Dockerfile + compose service
+is Phase 3.
+
+## Load testing
+
+`load_tests/locustfile.py` is ready (health/chat/search/documents tasks)
+but has **not been run under real concurrency** in this session — per the
+project's "no fabricated measurements" rule, that requires Satish to run it
+against a real instance:
+
+```powershell
+pip install locust
+locust -f load_tests\locustfile.py --host http://localhost:8000
+```
+
+Then open http://localhost:8089 to configure concurrency and start.
 
 ## Troubleshooting
 
@@ -206,12 +281,20 @@ claimed anywhere in this repository.
 - **SQLite "database is locked"** — only one process should hold
   `data/app.db` at a time in local dev; stop any previously running
   `uvicorn` instance first.
+- **Embedding/reranker model download fails** — these need one-time
+  outbound internet access to huggingface.co; if your network blocks it,
+  retrieval falls back to BM25-only automatically (and says so), but for
+  full hybrid search you'll need that access at least once.
+- **Frontend shows a network error** — make sure the backend is running on
+  port 8000 before `npm run dev`; the dev server proxies `/api` there.
 
 ## T33–T48 mapping
 
 See `docs/TASK_STATUS.md` for the live, honest status of every task —
 Implemented / Tested / Evidence Captured / Complete, with no task marked
-Complete on documentation alone.
+Complete on documentation alone, and an explicit list of genuine blockers
+that need Satish's input (a real Gemini key, running the load test, pushing
+to GitHub for real CI, and a decision on real authentication).
 
 ---
 ⚠️ Internal capstone project for Fulcrum Digital. AI-generated content in
