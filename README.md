@@ -9,17 +9,21 @@ questions — with the system also monitoring its own quality, security, and
 reliability. Built as one integrated application, not a set of independent
 mini-projects; T33–T48 are its acceptance criteria (see `docs/TASK_STATUS.md`).
 
-> **Status:** Phase 2 of 3. Document ingestion, hybrid retrieval (BM25 +
-> dense embeddings), cross-encoder reranking, multi-hop retrieval, Gemini
-> answer synthesis (with a real, tested extractive fallback since this
-> environment has no real Gemini key), metadata filtering, a separate
+> **Status:** Phase 3 of 3 (final). Document ingestion, hybrid retrieval
+> (BM25 + dense embeddings), cross-encoder reranking, multi-hop retrieval,
+> Gemini answer synthesis (with a real, tested extractive fallback since
+> this environment has no real Gemini key), metadata filtering, a separate
 > authorization layer, an executable evaluation + regression-detection
-> suite, and a working React frontend are all implemented, tested (61
+> suite (now including a genuine, live-executed prompt-regression +
+> auto-rollback demonstration), a fully-wired structured-database-search
+> tool path, and a working React frontend are all implemented, tested (78
 > passing pytest tests), and verified against a live running server —
-> including real Playwright screenshots of the UI driving the real API.
-> Load testing under real concurrency, CI execution on GitHub, and the
-> remaining T44–T48 documents are Phase 3 — see `docs/TASK_STATUS.md` for
-> exactly what is and isn't done.
+> including real Playwright screenshots of the UI driving the real API
+> and live curl transcripts for every documented command. T44–T48
+> documentation is written. Load testing under real concurrency and CI
+> execution on real GitHub Actions remain genuinely pending — they need to
+> run outside this sandbox — see `docs/TASK_STATUS.md` for exactly what is
+> and isn't done, and what still requires Satish's own action.
 
 ## Why this exists
 
@@ -108,7 +112,7 @@ enterprise-ai-copilot/
 │   │   ├── services/           # ingestion pipeline, Gemini client wrapper
 │   │   ├── observability/      # (tracing helpers — Phase 3)
 │   │   └── main.py
-│   ├── tests/                  # 61 passing pytest tests
+│   ├── tests/                  # 78 passing pytest tests
 │   ├── requirements.txt
 │   └── Dockerfile
 ├── frontend/                   # React + Vite — Dashboard, Chat, Documents, Evaluation, Observability, Security, Prompts
@@ -171,10 +175,15 @@ cd backend
 .\venv\Scripts\python.exe -m pytest -v
 ```
 
-Expected: **61 passed**. This includes tests that genuinely exercise the
+Expected: **78 passed**. This includes tests that genuinely exercise the
 Gemini-unavailable fallback path (no real API key is configured in this
 environment, so those tests prove the fallback works, not that Gemini
-answered) — see `tests/test_gemini_fallback.py`.
+answered) — see `tests/test_gemini_fallback.py` — plus Phase 3 additions
+covering tool-gateway authorization/timeout behavior, the structured-DB-
+search routing path end-to-end, and the malformed-prompt-template
+crash-safety fix (`tests/test_tool_gateway.py`,
+`tests/test_structured_db_routing.py`,
+`tests/test_prompt_fallback_crash_fix.py`).
 
 ## Environment variables
 
@@ -182,7 +191,7 @@ See `.env.example` at the repo root. Never commit a real `.env` file — it is
 git-ignored. No API keys, secrets, or credentials appear anywhere in this
 repository.
 
-## API (Phase 2)
+## API
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -254,9 +263,12 @@ metric values this repository produced in this session.
 ## Deployment
 
 Docker skeleton exists (`backend/Dockerfile`, `docker-compose.yml`) but has
-not been built or deployed in this session — no deployment success is
-claimed anywhere in this repository. A frontend Dockerfile + compose service
-is Phase 3.
+not been built or deployed in this session (no Docker daemon in this
+sandbox — see `.github/workflows/ci.yml`'s `docker-build` job, which is
+kept `if: false` for the same reason) — no deployment success is claimed
+anywhere in this repository. A frontend Dockerfile + compose service was
+not added in Phase 3 either; it remains a real gap, not an oversight to
+paper over.
 
 ## Load testing
 

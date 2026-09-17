@@ -69,7 +69,23 @@ def synthesize(db: Session, query: str, chunks: List[RetrievedChunk], *, request
         inspect_document_content(c.text, source_label=f"{c.filename}#chunk{c.chunk_id}", db=db, request_id=request_id)
         for c in chunks
     )
-    prompt = active_prompt.template.format(context=wrapped_context, query=query)
+
+    try:
+        prompt = active_prompt.template.format(context=wrapped_context, query=query)
+    except (KeyError, IndexError) as exc:
+        # A malformed prompt template (e.g. a bad edit in the Prompt Registry)
+        # must degrade gracefully, not crash the request — this is exactly
+        # the kind of regression the evaluation suite's
+        # rag_prompt_template_valid_rate metric exists to catch before it
+        # ever reaches a real user.
+        fallback_answer = _extractive_fallback(query, chunks)
+        return SynthesizedAnswer(
+            answer=fallback_answer,
+            citations=citations,
+            used_fallback=True,
+            fallback_reason=f"active prompt template '{active_prompt.prompt_id}::v{active_prompt.version}' is malformed ({exc}) — used extractive fallback synthesis",
+            prompt_version=f"{active_prompt.prompt_id}::v{active_prompt.version}",
+        )
 
     try:
         answer_text = generate(prompt)

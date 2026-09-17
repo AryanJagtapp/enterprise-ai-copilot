@@ -1,9 +1,10 @@
 # T42 — Security Hardening Report (OWASP LLM Top 10-oriented review)
 
-Status: Phase 2 draft, based on the Security Gateway and Authorization
-module actually implemented and tested in this repository (61 passing
-tests as of this phase). This is not a substitute for a real security
-team review — see the disclaimer at the end.
+Status: Phase 3 update, based on the Security Gateway and Authorization
+module actually implemented and tested in this repository (78 passing
+tests as of this phase, including new tool-gateway authorization tests
+added in Phase 3). This is not a substitute for a real security team
+review — see the disclaimer at the end.
 
 ## LLM01: Prompt Injection
 
@@ -58,16 +59,22 @@ passed to a shell/SQL layer. `validate_output()` is the final gate.
 ## LLM06: Excessive Agency
 
 **Addressed, deliberately conservative.** The orchestrator
-(`app/agents/orchestrator.py`) is a bounded router with five fixed paths,
-not an open-ended ReAct loop. Every tool call goes through the Tool
-Gateway (`app/tools/gateway.py`), which enforces: an explicit allowlist
-(no dynamic dispatch by string), Pydantic schema validation of arguments,
-a timeout per call, and `max_agent_steps` per request. The calculator
-tool uses Python's `ast` module with a strict node-type allowlist — no
-`eval()`/`exec()` anywhere in the codebase. The structured-DB-search tool
-only queries an explicit table allowlist (`documents`), never arbitrary
-SQL. Tested: `tests/test_calculator.py::test_disallows_arbitrary_code`,
-`tests/test_orchestrator_router.py`.
+(`app/agents/orchestrator.py`) is a bounded router with six fixed
+outcomes (REFUSE, CLARIFY, TOOL/calculator, TOOL/structured_db_search,
+MULTI_HOP, RAG), not an open-ended ReAct loop. Every tool call goes
+through the Tool Gateway (`app/tools/gateway.py`), which enforces: an
+explicit allowlist (no dynamic dispatch by string), Pydantic schema
+validation of arguments, a timeout per call, and `max_agent_steps` per
+request. The calculator tool uses Python's `ast` module with a strict
+node-type allowlist — no `eval()`/`exec()` anywhere in the codebase. The
+structured-DB-search tool only queries an explicit table allowlist
+(`documents`), never arbitrary SQL, and rejects any filter field that
+isn't a real column on that model. Tested (Phase 3 adds explicit
+coverage for invalid arguments, non-allowlisted tables, unknown filter
+fields, missing required context, timeouts, and the `max_agent_steps`
+cap): `tests/test_calculator.py::test_disallows_arbitrary_code`,
+`tests/test_orchestrator_router.py`, `tests/test_tool_gateway.py`,
+`tests/test_structured_db_routing.py`.
 
 ## LLM07: System Prompt Leakage
 
@@ -90,9 +97,10 @@ Tested: `tests/test_authorization.py`,
 
 **Known gap (documented, not hidden):** requester clearance is currently
 read from an `X-User-Clearance` header with no real identity provider
-behind it. This is a placeholder until real authentication (Azure AD, to
-match Fulcrum's existing Azure footprint) is integrated — a real
-deployment must not ship with header-based clearance.
+behind it. This is a deliberate, clearly-labeled staging/demo mechanism,
+not a production authentication scheme — see the dedicated "Production
+Migration Path" section below for exactly what changes before this can
+ship.
 
 ## LLM09: Misinformation
 
@@ -122,6 +130,54 @@ security boundary and a caller omitting it does not grant broader access.
 enforcement point, applied unconditionally after retrieval/reranking, on
 every `/chat` and `/search` request, regardless of what filter (if any)
 was requested.
+
+## Production Migration Path: Enterprise SSO / Identity-Based Authorization
+
+**This is a documentation-only section for Phase 3. No identity
+provider — Azure AD or otherwise — has been implemented in this
+codebase, and none should be added unless Satish explicitly asks for
+it.** The `X-User-Clearance` header exists solely so the authorization
+layer (`app/security/authorization.py`) has something real and testable
+to enforce against in a local/staging environment without standing up
+Fulcrum's actual identity infrastructure inside a capstone project.
+
+What changes when this moves toward production, and roughly where:
+
+1. **Authentication front door.** Requests would carry a validated
+   bearer token (e.g. an Azure AD-issued JWT via OAuth2/OIDC) instead of
+   a plain header. This is added as FastAPI middleware/dependency (a new
+   `app/security/auth.py`, not a change to `authorization.py` itself) so
+   the separation this project already has — authentication decides
+   *who*, authorization decides *what they can see* — is preserved
+   rather than collapsed back into one concern.
+2. **Clearance source.** `clearance_for_confidentiality()` currently
+   maps a trusted header string directly to a `ClearanceLevel`. In
+   production this function's input would instead come from claims
+   resolved from the validated token (an Azure AD group or app role
+   claim mapped to Public/Internal/Confidential/Restricted), never from
+   a client-supplied header — the header becomes untrusted input the
+   moment a real identity provider exists, so it would be removed
+   entirely rather than kept as a fallback.
+3. **Token validation.** Standard OIDC validation against Azure AD's
+   JWKS endpoint (signature, issuer, audience, expiry) — this is
+   infrastructure, not business logic, and belongs in a thin
+   middleware layer so `authorization.py`'s unit tests
+   (`tests/test_authorization.py`) keep working unchanged against a
+   `ClearanceLevel` input regardless of where that input came from.
+4. **Group/role provisioning.** Mapping real Azure AD security groups or
+   app roles to the four confidentiality levels is an IT/identity-team
+   decision, not something this codebase can decide on its own — it
+   needs Satish's (or Fulcrum IT's) actual Azure AD tenant configuration.
+5. **What does NOT need to change:** the document confidentiality
+   schema, `filter_authorized_chunks()`'s enforcement logic, or the
+   metadata-filtering vs. authorization separation — those are already
+   identity-provider-agnostic by design, which is the whole point of
+   keeping this as a documented seam rather than baking a specific IdP
+   into the enforcement code.
+
+This section deliberately stops at "what would change and where" — it
+is not an implementation, and implementing it is out of scope until
+Satish explicitly requests it.
 
 ## What this report does NOT claim
 

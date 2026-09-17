@@ -31,9 +31,17 @@ jobs:
           ruff check app tests
 
       - name: Unit + integration tests
+        # GEMINI_API_KEY is sourced from a GitHub Actions repository secret
+        # (Settings -> Secrets and variables -> Actions -> GEMINI_API_KEY),
+        # never committed to the repo. If the secret is unset (e.g. on a
+        # fork's PR, where secrets are withheld by GitHub), the `||` fallback
+        # below supplies a placeholder string that the app's own
+        # gemini_client.py recognizes as "not a real key" and deliberately
+        # routes to the extractive-fallback code path — so CI still exercises
+        # the fallback path honestly rather than silently skipping tests.
         env:
           DATABASE_URL: "sqlite:///:memory:"
-          GEMINI_API_KEY: "ci-placeholder-key"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY || 'ci-placeholder-key' }}
         run: pytest -v --cov=app --cov-report=term-missing
 
       - name: Security checks (pip-audit)

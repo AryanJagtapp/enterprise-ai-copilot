@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import AppError
 from app.evaluation.datasets import QA_CASES, SAFETY_CASES, SAMPLE_DOCUMENTS, TOOL_CASES
 from app.models.db import Evaluation
+from app.prompts.registry import PromptRegistry
 from app.rag.answer_synthesis import synthesize
 from app.rag.hybrid_retrieval import retrieve
 from app.rag.reranker import rerank
@@ -105,6 +106,38 @@ def _tool_reliability_metrics() -> Dict[str, float]:
     return {"tool_reliability_rate": correct / n}
 
 
+def _prompt_template_validity_metrics(db: Session) -> Dict[str, float]:
+    """
+    Measures whether the CURRENTLY ACTIVE prompt templates render without
+    error against a representative call. This is what actually changes
+    when a prompt version is edited badly (e.g. a typo'd placeholder) —
+    unlike the citation/hit-rate metrics above, which are computed by the
+    extractive fallback path in this environment (no real Gemini key) and
+    are therefore insensitive to prompt *wording*, this metric IS sensitive
+    to whether the template is well-formed, which is exactly the kind of
+    regression a bad prompt edit introduces. See evaluate_prompt_change()
+    in regression.py for a worked example that trips this metric.
+    """
+    registry = PromptRegistry(db)
+    results = {}
+
+    rag_prompt = registry.get_active("rag_answer_synthesis")
+    try:
+        rag_prompt.template.format(context="sample context", query="sample query")
+        results["rag_prompt_template_valid_rate"] = 1.0
+    except (KeyError, IndexError):
+        results["rag_prompt_template_valid_rate"] = 0.0
+
+    multi_hop_prompt = registry.get_active("multi_hop_planner")
+    try:
+        multi_hop_prompt.template.format(query="sample query")
+        results["multi_hop_prompt_template_valid_rate"] = 1.0
+    except (KeyError, IndexError):
+        results["multi_hop_prompt_template_valid_rate"] = 0.0
+
+    return results
+
+
 def run_evaluation(db: Session, run_label: str, *, seed_sample_documents: bool = True) -> List[MetricResult]:
     if seed_sample_documents:
         ensure_sample_documents_ingested(db)
@@ -113,6 +146,7 @@ def run_evaluation(db: Session, run_label: str, *, seed_sample_documents: bool =
     metrics.update(_retrieval_and_citation_metrics(db))
     metrics.update(_safety_metrics(db))
     metrics.update(_tool_reliability_metrics())
+    metrics.update(_prompt_template_validity_metrics(db))
 
     results = []
     for name, value in metrics.items():

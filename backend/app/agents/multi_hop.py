@@ -43,7 +43,14 @@ def _heuristic_split(query: str) -> List[str]:
 def plan_sub_questions(db: Session, query: str) -> tuple[List[str], bool, Optional[str]]:
     registry = PromptRegistry(db)
     active_prompt = registry.get_active("multi_hop_planner")
-    prompt = active_prompt.template.format(query=query)
+
+    try:
+        prompt = active_prompt.template.format(query=query)
+    except (KeyError, IndexError) as exc:
+        # Same principle as answer_synthesis.py: a malformed prompt template
+        # must degrade to the heuristic planner, never crash the request.
+        return _heuristic_split(query), True, f"active prompt template '{active_prompt.prompt_id}::v{active_prompt.version}' is malformed ({exc}); used heuristic keyword split"
+
     try:
         raw = generate(prompt)
         sub_questions = [line.strip("- ").strip() for line in raw.splitlines() if line.strip()]

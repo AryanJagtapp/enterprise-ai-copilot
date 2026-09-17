@@ -30,7 +30,8 @@ from app.rag.hybrid_retrieval import build_metadata_filter_set, retrieve
 from app.rag.reranker import rerank
 from app.security import authorization
 from app.security.gateway import inspect_input, validate_output
-from app.tools.gateway import ToolGateway
+from app.tools.gateway import ToolContext, ToolGateway
+from app.tools.query_parsing import parse_structured_db_query
 
 router = APIRouter(tags=["chat"])
 _tool_gateway = ToolGateway()
@@ -83,6 +84,31 @@ def chat(payload: ChatRequest, request: Request, db: Session = Depends(get_db)):
             result = _tool_gateway.call("calculator", {"expression": gateway_decision.sanitized_text}, calls_so_far=0)
             answer = f"{result.output}"
             tools_used.append("calculator")
+        except AppError as exc:
+            raise HTTPException(status_code=422, detail=exc.to_response()) from exc
+        tool_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+
+    elif route.path == RoutePath.TOOL and route.tool_name == "structured_db_search":
+        t0 = time.perf_counter()
+        parsed = parse_structured_db_query(gateway_decision.sanitized_text)
+        context = ToolContext(db=db, request_id=request_id, clearance=clearance_header)
+        try:
+            result = _tool_gateway.call(
+                "structured_db_search",
+                {"table": parsed.table, "filters": parsed.filters, "limit": parsed.limit},
+                calls_so_far=0,
+                context=context,
+            )
+            rows = result.output
+            tools_used.append("structured_db_search")
+            if not rows:
+                answer = "No documents matched that query."
+            else:
+                filter_desc = ", ".join(f"{k}={v}" for k, v in parsed.filters.items()) or "no filters"
+                names = ", ".join(r["filename"] for r in rows[:10])
+                answer = f"Found {len(rows)} document(s) ({filter_desc}): {names}"
+                if len(rows) > 10:
+                    answer += f", and {len(rows) - 10} more."
         except AppError as exc:
             raise HTTPException(status_code=422, detail=exc.to_response()) from exc
         tool_latency_ms = round((time.perf_counter() - t0) * 1000, 2)
