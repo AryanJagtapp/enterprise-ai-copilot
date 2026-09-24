@@ -38,7 +38,7 @@ def _ensure_configured() -> None:
         raise DependencyUnavailable("Gemini", detail=f"failed to configure client: {exc}") from exc
 
 
-def generate(prompt: str, *, max_output_tokens: int = 1024, temperature: float = 0.2) -> str:
+def generate(prompt: str, *, max_output_tokens: int = 4096, temperature: float = 0.2) -> str:
     settings = get_settings()
     _ensure_configured()
 

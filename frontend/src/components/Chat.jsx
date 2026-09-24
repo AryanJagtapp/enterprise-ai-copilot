@@ -1,6 +1,101 @@
 import React, { useState } from "react";
 import { api } from "../api.js";
 
+/**
+ * Minimal, dependency-free Markdown renderer for model answers.
+ *
+ * Deliberately NOT using a Markdown library + dangerouslySetInnerHTML:
+ * the text being rendered here is LLM output derived from retrieved
+ * documents, which this project's whole Security Gateway treats as
+ * untrusted content (see app/security/injection.py's wrap_as_untrusted_data
+ * docstring on the backend). Rendering that as raw HTML would reopen
+ * exactly the kind of injection surface the backend goes out of its way
+ * to guard against. This renderer only ever produces real React elements
+ * from a small, explicit set of Markdown constructs (headers, bold,
+ * bullet lists, horizontal rules, paragraphs) — there is no code path
+ * that turns model output into raw HTML.
+ */
+function renderInline(text, keyPrefix) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) =>
+    part.startsWith("**") && part.endsWith("**") && part.length > 4 ? (
+      <strong key={`${keyPrefix}-b-${i}`}>{part.slice(2, -2)}</strong>
+    ) : (
+      <React.Fragment key={`${keyPrefix}-t-${i}`}>{part}</React.Fragment>
+    )
+  );
+}
+
+function renderMarkdown(text) {
+  const lines = String(text ?? "").split("\n");
+  const blocks = [];
+  let listBuffer = [];
+  let paraBuffer = [];
+
+  function flushList(key) {
+    if (listBuffer.length) {
+      blocks.push(
+        <ul key={`ul-${key}`} style={{ margin: "4px 0 8px 20px", padding: 0 }}>
+          {listBuffer.map((item, i) => (
+            <li key={i}>{renderInline(item, `li-${key}-${i}`)}</li>
+          ))}
+        </ul>
+      );
+      listBuffer = [];
+    }
+  }
+
+  function flushPara(key) {
+    if (paraBuffer.length) {
+      blocks.push(
+        <p key={`p-${key}`} style={{ margin: "4px 0" }}>
+          {renderInline(paraBuffer.join(" "), `p-${key}`)}
+        </p>
+      );
+      paraBuffer = [];
+    }
+  }
+
+  lines.forEach((rawLine, idx) => {
+    const line = rawLine.trim();
+
+    if (line === "") {
+      flushPara(idx);
+      flushList(idx);
+      return;
+    }
+    if (line === "---" || line === "***") {
+      flushPara(idx);
+      flushList(idx);
+      blocks.push(<hr key={`hr-${idx}`} style={{ border: "none", borderTop: "1px solid var(--panel-border)", margin: "8px 0" }} />);
+      return;
+    }
+    const headerMatch = line.match(/^(#{1,4})\s+(.*)$/);
+    if (headerMatch) {
+      flushPara(idx);
+      flushList(idx);
+      const level = headerMatch[1].length;
+      const Tag = `h${Math.min(level + 2, 6)}`; // keep headers modest-sized inside a chat bubble
+      blocks.push(
+        React.createElement(Tag, { key: `h-${idx}`, style: { margin: "10px 0 4px" } }, renderInline(headerMatch[2], `h-${idx}`))
+      );
+      return;
+    }
+    const listMatch = line.match(/^[*-]\s+(.*)$/);
+    if (listMatch) {
+      flushPara(idx);
+      listBuffer.push(listMatch[1]);
+      return;
+    }
+    flushList(idx);
+    paraBuffer.push(line);
+  });
+  flushPara("end");
+  flushList("end");
+
+  return blocks;
+}
+
 function traceLine(response) {
   const steps = ["Query", `Router: ${response.router_decision}`];
   if (response.retrieval_strategy) steps.push(response.retrieval_strategy);
@@ -82,7 +177,7 @@ export default function Chat() {
             <div key={i} className="chat-bubble user">{m.text}</div>
           ) : (
             <div key={i} className="chat-bubble assistant">
-              <div>{m.response.answer}</div>
+              <div>{renderMarkdown(m.response.answer)}</div>
               {m.response.citations?.length > 0 && (
                 <div>
                   {m.response.citations.map((c, j) => (
@@ -121,3 +216,5 @@ export default function Chat() {
     </div>
   );
 }
+
+export { renderMarkdown };
