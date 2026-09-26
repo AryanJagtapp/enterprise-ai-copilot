@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.0-flash"
 
     # --- Hugging Face models ---
-       embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     hf_models_enabled: bool = True
     # Staging (Render free tier, 512MB RAM) can't hold both the embedding
