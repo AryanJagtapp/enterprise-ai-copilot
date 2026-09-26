@@ -63,7 +63,6 @@ jobs:
       - run: npm run build
 
   docker-build:
-      docker-build:
     needs: [backend]
     runs-on: ubuntu-latest
     if: false  # Dockerfile is written but this sandbox has no Docker daemon to verify it builds — flip on once Satish confirms a local `docker build` succeeds
