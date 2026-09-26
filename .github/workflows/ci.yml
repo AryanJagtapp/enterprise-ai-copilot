@@ -63,6 +63,7 @@ jobs:
       - run: npm run build
 
   docker-build:
+      docker-build:
     needs: [backend]
     runs-on: ubuntu-latest
     if: false  # Dockerfile is written but this sandbox has no Docker daemon to verify it builds — flip on once Satish confirms a local `docker build` succeeds
@@ -70,3 +71,24 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build backend image
         run: docker build -t enterprise-ai-copilot-backend ./backend
+
+  deploy-staging:
+    # T43 requires the pipeline to read lint -> test -> build -> deploy to
+    # staging, in that order and gated on the earlier stages actually
+    # passing — not a deploy that fires independently of CI on every push.
+    # Render is the staging host (see docs/T44_Runbook.md); this job never
+    # talks to Render's API directly, it just POSTs to a per-service Deploy
+    # Hook URL, which is the simplest mechanism Render offers for exactly
+    # this "let CI decide when to deploy" use case.
+    needs: [backend, frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Render staging deploy
+        run: |
+          if [ -z "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
+            echo "RENDER_DEPLOY_HOOK_URL secret is not set yet — staging isn't configured, skipping deploy without failing the pipeline."
+            exit 0
+          fi
+          curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+          echo "Deploy hook triggered — check the Render dashboard for build/deploy progress."

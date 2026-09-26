@@ -7,10 +7,12 @@ import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import chat, documents, evaluation, health, observability, prompts, search, security
 from app.core.config import get_settings
@@ -72,3 +74,49 @@ app.include_router(prompts.router, prefix=settings.api_prefix)
 app.include_router(security.router, prefix=settings.api_prefix)
 app.include_router(observability.router, prefix=settings.api_prefix)
 app.include_router(evaluation.router, prefix=settings.api_prefix)
+
+# Add this block at the very end of the file, after the last app.include_router(...) line:
+
+_frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if _frontend_dist.is_dir():
+    app.mount("/assets", StaticFiles(directory=_frontend_dist / "assets"), name="frontend-assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        return FileResponse(_frontend_dist / "index.html")
+
+# --- Serve the built frontend (staging deployment only) ---------------------
+# Registered LAST, after every API router above, so an actual /api/v1/* path
+# is always matched by its real route first — this catch-all only ever
+# receives requests that didn't match an API route. In local dev this block
+# is simply skipped (frontend/dist doesn't exist; the Vite dev server serves
+# the UI on its own port instead), so nothing about the local workflow
+# changes. In staging (Render), the CI build step builds the frontend into
+# frontend/dist, and this lets one web service serve both the UI and the API
+# from the same origin.
+_here = Path(__file__).resolve()
+_candidates = [
+    _here.parents[2] / "frontend" / "dist",   # repo_root/frontend/dist (expected layout)
+    Path.cwd() / "frontend" / "dist",         # in case the start command's cwd differs
+    Path.cwd().parent / "frontend" / "dist",  # one level up from cwd, as a fallback
+]
+_frontend_dist = next((p for p in _candidates if p.is_dir()), None)
+
+log_event(
+    logger, "info", "frontend dist lookup",
+    resolved_file=str(_here),
+    cwd=str(Path.cwd()),
+    candidates=[str(p) for p in _candidates],
+    found=str(_frontend_dist) if _frontend_dist else None,
+)
+
+if _frontend_dist:
+    app.mount("/assets", StaticFiles(directory=_frontend_dist / "assets"), name="frontend-assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        return FileResponse(_frontend_dist / "index.html")
