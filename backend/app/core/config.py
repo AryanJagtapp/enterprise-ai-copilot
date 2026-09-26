@@ -30,9 +30,16 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.0-flash"
 
     # --- Hugging Face models ---
-    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+       embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     hf_models_enabled: bool = True
+    # Staging (Render free tier, 512MB RAM) can't hold both the embedding
+    # model and the cross-encoder reranker in memory at once without OOM-ing.
+    # This flag lets the reranker be switched off via one env var
+    # (RERANKER_ENABLED=false) without touching hybrid retrieval (BM25 +
+    # dense embeddings), which stays fully intact either way. Defaults to
+    # True so local dev and any higher-memory environment keep reranking on.
+    reranker_enabled: bool = True
 
     # --- Storage ---
     database_url: str = "sqlite:///./data/app.db"
