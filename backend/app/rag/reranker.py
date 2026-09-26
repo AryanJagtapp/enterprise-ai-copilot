@@ -37,6 +37,11 @@ def rerank(query: str, chunks: List[RetrievedChunk], *, top_k: int = 5) -> Tuple
     """Returns (reranked_chunks, fallback_triggered, fallback_reason)."""
     if not chunks:
         return [], False, None
+    settings = get_settings()
+    if not settings.reranker_enabled:
+        reason = "reranker disabled via config (RERANKER_ENABLED=false); used hybrid-retrieval order unchanged"
+        logger.info(reason)
+        return chunks[:top_k], True, reason
     try:
         model = _load_model()
         pairs = [(query, c.text) for c in chunks]
