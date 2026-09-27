@@ -44,6 +44,26 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 def _load_model():
     global _model, _model_name
     settings = get_settings()
+    if not settings.hf_models_enabled:
+        # Deliberately never import torch/sentence-transformers in this mode.
+        # On Render's free tier (512MB RAM, ephemeral disk), the OOM kill
+        # happens *while the model weights are being loaded* (confirmed from
+        # the deploy logs — the process dies mid "Load pretrained
+        # SentenceTransformer", before any inference or thread-pool activity
+        # even starts). That means the cost is torch's own baseline memory
+        # footprint plus the cold-start weight load/download, not per-thread
+        # overhead — so capping thread count alone (see torch.set_num_threads
+        # below) cannot fix it, and the only reliable fix on this tier is to
+        # not load the model at all. Raising here (instead of trying and
+        # crashing) routes through the *existing* Feature 4 fallback contract:
+        # hybrid_retrieval.retrieve() already catches DependencyUnavailable
+        # and degrades to BM25-only keyword search, same pattern as the
+        # already-disabled reranker. Set HF_MODELS_ENABLED=false on Render;
+        # leave it unset (default true) everywhere else, including local dev.
+        raise DependencyUnavailable(
+            "embedding model",
+            detail="HF_MODELS_ENABLED=false (disabled on this deployment to avoid OOM on limited-memory hosting); using BM25-only retrieval",
+        )
     if _model is not None and _model_name == settings.embedding_model:
         return _model
     try:
