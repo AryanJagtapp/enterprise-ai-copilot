@@ -23,8 +23,14 @@ def _load_model():
     if _model is not None and _model_name == settings.reranker_model:
         return _model
     try:
+        import torch
         from sentence_transformers import CrossEncoder
 
+        # Same thread-pool cap as embeddings.py — see the comment there.
+        # This module still imports the (currently disabled) reranker path,
+        # so it needs the same guard if RERANKER_ENABLED is ever set back
+        # to true on a memory-constrained instance.
+        torch.set_num_threads(1)
         _model = CrossEncoder(settings.reranker_model)
         _model_name = settings.reranker_model
         logger.info("loaded reranker model %s", settings.reranker_model)
