@@ -27,8 +27,14 @@ class Settings(BaseSettings):
 
     # --- LLM (Gemini only — no OpenAI) ---
     gemini_api_key: str = Field(default="", description="Set via GEMINI_API_KEY env var")
-    gemini_model: str = "gemini-2.0-flash"
-
+    # Google retired gemini-2.0-flash (confirmed via a live 404 from the API
+    # itself, whose error body names the replacement); gemini-3.8-flash is
+    # the current flash-tier model as of this writing. This is a plain
+    # config default, so it can also be overridden per-environment via the
+    # GEMINI_MODEL env var without a code change if Google renames models
+    # again before this default is next updated.
+    gemini_model: str = "gemini-3.8-flash"
+    
     # --- Hugging Face models ---
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
